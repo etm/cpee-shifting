@@ -1,0 +1,68 @@
+#!/usr/bin/ruby
+#
+# This file is part of CPEE-SHIFTING.
+#
+# CPEE-SHIFTING is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option) any
+# later version.
+#
+# CPEE-SHIFTING is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+# more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# CPEE-SHIFTING (file COPYING in the main directory). If not, see
+# <http://www.gnu.org/licenses/>.
+
+require 'rubygems'
+require 'riddl/server'
+
+module CPEE
+  module Shifting
+
+    SERVER = File.expand_path(File.join(__dir__,'shifting.xml'))
+
+    class Handler < Riddl::Implementation
+      def response
+        opts       = @a[0]
+        type       = @p[0].value
+        topic      = @p[1].value
+        event_name = @p[2].value
+        payload    = @p[3].value.read
+
+
+        p topic
+
+        nil
+      end
+    end
+
+    def self::implementation(opts)
+      opts[:log_dir]           ||= File.expand_path(File.join(__dir__,'logs'))
+
+      Proc.new do
+        interface 'events' do
+          run Handler, opts if post 'event'
+        end
+      end
+    end
+
+  end
+end
+
+options = {
+  :host => 'localhost',
+  :port => 9319,
+  :secure => false
+}
+
+Riddl::Server.new(CPEE::Shifting::SERVER, options) do
+  accessible_description true
+  cross_site_xhr true
+
+  @riddl_opts[:log_dir] ||= File.join(__dir__,'logs')
+
+  use CPEE::Shifting::implementation(@riddl_opts)
+end.loop!
