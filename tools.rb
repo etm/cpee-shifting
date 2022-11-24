@@ -59,6 +59,8 @@ module CPEE
       branches = JSON::load(File.open(bname))
       nname = xname.sub(/\.xes\./,'.xes.shift.')
 
+      p branches
+
       events = {}
       YAML::load_stream(File.read(xname)) do |e|
         if e['log']
@@ -76,16 +78,49 @@ module CPEE
         end
       end
 
-
       events.sort_by{|k,v| v.start}.to_h
       cs = Chronic::parse(shifts['start']['start'])
       cf = ChronicDuration::parse(shifts['start']['factor'], :keep_zero => true)
       csm = shifts['start']['modifier'].to_f
 
-      p events.first
-      events.first.shift_start = cs + cf * csm
-      events.first.shift_duration = events[0].duration * csm
-      pp events
+      traces = [[]]
+      laststate = :sequence
+      events.each do |k,v|
+        bfound = false
+        branches.each do |b| # add branches to traces tree
+          b.each do |bid,bra|
+            if bra.include? v.id
+              traces.append(b.map{|tbid,tbra|tbra})
+              branches.delete b
+              laststate = :parallel
+            end
+          end
+        end
+        # search through last entry in traces tree
+        if laststate == :parallel
+          found = false
+          traces.last.each do |b|
+            if b.include? v.id
+              b.append v
+              found = true
+            end
+          end
+          unless found
+            traces << []
+            laststate = :sequence
+            traces.last.append v
+          end
+        else
+          traces.last.append v
+        end
+      end
+
+      pp traces
+
+      # p events.first
+      # events.first.shift_start = cs + cf * csm
+      # events.first.shift_duration = events[0].duration * csm
+      # pp events
     end
   end
 end
