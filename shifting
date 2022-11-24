@@ -18,11 +18,36 @@
 
 require 'rubygems'
 require 'riddl/server'
+require 'weel'
+require 'json'
 
 module CPEE
   module Shifting
 
     SERVER = File.expand_path(File.join(__dir__,'shifting.xml'))
+
+    def self::extract_annotation(activity,xml)
+      ret = {}
+      XML::Smart::string(xml) do |doc|
+        doc.register_namespace 'd', 'http://cpee.org/ns/description/1.0'
+        ret = { activity => {} }
+        if activity == 'start'
+          ret[activity]['factor'] = doc.find('string(//d:_shifting_factor)') if doc.find('string(//d:_shifting_factor)').strip != ''
+          ret[activity]['start'] = doc.find('string(//d:_shifting_start)')  if doc.find('string(//d:_shifting_start)').strip != ''
+          ret[activity]['modifier'] = doc.find('string(//d:_shifting_modifier)') if doc.find('string(//d:_shifting_modifier)').strip != ''
+        else
+          if doc.find('string(//d:_shifting_expression)').strip != ''
+            ret[activity]['type'] = doc.find('string(//d:_shifting_type)')
+            ret[activity]['expression'] = doc.find('string(//d:_shifting_expression)')
+          end
+        end
+      end
+      ret[activity].any? ? ret : {}
+    end
+
+    def self::generate_shifted_log(aname,dname,xname)
+      p 'doit'
+    end
 
     class Handler < Riddl::Implementation
       def response
@@ -32,15 +57,66 @@ module CPEE
         event_name = @p[2].value
         payload    = @p[3].value.read
 
+        notification = JSON.parse(payload)
+        instance = notification['instance-uuid']
+        return unless instance
 
-        p topic
+        instancenr = notification['instance']
+        content    = notification['content']
+        activity   = content['activity']
+
+        log_dir = opts[:log_dir]
+
+        aname = File.join(log_dir,instance + '.shift.json')
+        bname = File.join(log_dir,instance + '.branches.json')
+        xname = File.join(log_dir,instance + '.xes.yaml')
+
+        if topic == 'annotation' and event_name == 'change'
+          ret = content['annotation'] ? CPEE::Shifting::extract_annotation(activity,content['annotation']) : {}
+          if ret.any?
+            dname = File.join(log_dir,instance + '.data.json')
+            shifting = if File.exists?(aname)
+              JSON::parse(File.read(aname))
+            else
+              {}
+            end
+            ['start','modifier','expression'].each do |e|
+              if ret[activity][e] && ret[activity][e][0] == '!'
+                rs = WEEL::ReadStructure.new(File.exists?(dname) ? JSON::load(File::open(dname)) : {},{},{})
+                ret[activity][e] = rs.instance_eval(ret[activity][e][1..-1],'e',1)
+              end
+            end
+            shifting.merge!(ret)
+            File.write(aname,JSON::pretty_generate(shifting))
+          end
+        end
+        if topic == 'state' and event_name == 'change'
+          if content['state'] == 'finished' && File.exists?(aname)
+            EM.defer do
+              Shifting::generate_shifted_log(aname,bname,xname)
+            end
+          end
+        end
+
+        if topic == 'gateway' and event_name == 'join'
+          ret = content['branches']
+          if ret.any?
+            branches = if File.exists?(bname)
+              JSON::parse(File.read(bname))
+            else
+              []
+            end
+            branches.append(ret)
+            File.write(bname,JSON::pretty_generate(branches))
+          end
+        end
 
         nil
       end
     end
 
     def self::implementation(opts)
-      opts[:log_dir]           ||= File.expand_path(File.join(__dir__,'logs'))
+      opts[:log_dir] ||= File.expand_path(File.join(__dir__,'logs'))
 
       Proc.new do
         interface 'events' do
