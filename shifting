@@ -20,6 +20,7 @@ require 'rubygems'
 require 'riddl/server'
 require 'weel'
 require 'json'
+require_relative 'tools'
 
 module CPEE
   module Shifting
@@ -43,10 +44,6 @@ module CPEE
         end
       end
       ret[activity].any? ? ret : {}
-    end
-
-    def self::generate_shifted_log(aname,dname,xname)
-      p 'doit'
     end
 
     class Handler < Riddl::Implementation
