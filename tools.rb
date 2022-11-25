@@ -23,16 +23,21 @@ require 'time'
 require 'chronic'
 require 'chronic_duration'
 
-class TInfo
+class TInfo #{{{
   attr_accessor :shift_start, :shift_duration
-  attr_reader :id, :start, :end, :duration
-  def initialize(id)
+  attr_reader :id, :uuid, :start, :end, :duration
+  def initialize(id,uuid)
     @id = id
+    @uuid = uuid
     @start = nil
     @end = nil
     @duration = nil
     @shift_start = nil
     @shift_duration = nil
+  end
+
+  def finished?
+    @shift_start && @shift_duration
   end
 
   def start=(val)
@@ -48,35 +53,92 @@ class TInfo
     end
   end
   def inspect
-    "<%s: %s,%s,%s,%s>" % [@id,@start.xmlschema(3),@duration,@shift_start&.xmlschema(3),@shift_duration.to_s]
+    tend = finished? ? (@shift_start + @shift_duration).xmlschema(2)[8..-7] : 0
+    '<%s: %s,%s,%s>' % [@id,@shift_start&.xmlschema(2)[8..-7],@shift_duration.to_s,tend]
   end
-end
+
+  def shift_end
+    finished? ? @shift_start + @shift_duration : nil
+  end
+end #}}}
 
 module CPEE
   module Shifting
+    def self::rec_clean(traces) #{{{
+      traces.delete_if do |t|
+        if t.is_a? Array
+          Shifting::rec_clean(t)
+          false
+        elsif t.is_a? String
+          true
+        else
+          false
+        end
+      end
+    end #}}}
+
+    def self::init_time(fragment,start) #{{{
+      fragment.each do |f|
+        if f.is_a? Array
+          Shifting::init_time(f,start)
+        else
+          fact = ChronicDuration::parse(start['factor'],:keep_zero => true)
+          f.shift_start = Chronic::parse(start['start']) + fact * start['modifier'].to_f
+          f.shift_duration = f.duration * fact
+          return
+        end
+      end
+    end #}}}
+
+    def self::rec_shift(traces,shift,factor,endtimes=nil,top=true) #{{{
+      endtimescoll = []
+      traces.each do |f|
+        if f.is_a? Array
+          if top
+            endtimes = Shifting::rec_shift(f,shift,factor,endtimes,false) # on the highest level it is all a sequence, all sublevels are parallels?
+          else
+            endtimescoll << Shifting::rec_shift(f,shift,factor,endtimes,false) # we need to save the endtimes of all branches on order to find the max
+          end
+        else
+          if f.finished?
+            endtimes = f.shift_end
+          else
+            f.shift_start = endtimes
+            f.shift_duration = f.duration * factor
+            if shift[f.id] && shift[f.id]['type'] == 'Ends'
+              # puts f.id + ': ' + shift[f.id]['expression']
+              duration = Chronic::parse(shift[f.id]['expression'], :now => endtimes) - f.shift_start
+              f.shift_duration = duration < 0 ? 0 : duration
+            end
+            if shift[f.id] && shift[f.id]['type'] == 'Duration'
+              # puts f.id + ': ' + shift[f.id]['expression']
+              f.shift_duration = ChronicDuration.parse(shift[f.id]['expression'], :keep_zero => true)
+            end
+            endtimes = f.shift_end
+          end
+        end
+      end
+      endtimes = endtimescoll.max if endtimescoll.any?
+      endtimes
+     end #}}}
+
     def self::generate_shifted_log(aname,bname,xname)
       shifts =  JSON::load(File.open(aname))
       branches = JSON::load(File.open(bname))
       nname = xname.sub(/\.xes\./,'.xes.shift.')
 
-      p branches
-
       events = {}
-      YAML::load_stream(File.read(xname)) do |e|
-        if e['log']
-          File.open(nname,'w') do |f|
-            f << e.to_yaml
-          end
-        elsif e['event']
+      YAML::load_stream(File.read(xname)) do |e| #{{{
+        if e['event']
           if e['event']['cpee:lifecycle:transition'] == 'activity/calling'
-            events[e['event']['cpee:activity_uuid']] ||= TInfo.new(e['event']['id:id'])
+            events[e['event']['cpee:activity_uuid']] ||= TInfo.new(e['event']['id:id'],e['event']['cpee:activity_uuid'])
             events[e['event']['cpee:activity_uuid']].start = Time.parse(e['event']['time:timestamp'])
           elsif e['event']['cpee:lifecycle:transition'] == 'activity/done'
-            events[e['event']['cpee:activity_uuid']] ||= TInfo.new(e['event']['id:id'])
+            events[e['event']['cpee:activity_uuid']] ||= TInfo.new(e['event']['id:id'],e['event']['cpee:activity_uuid'])
             events[e['event']['cpee:activity_uuid']].end = Time.parse(e['event']['time:timestamp'])
           end
         end
-      end
+      end #}}}
 
       events.sort_by{|k,v| v.start}.to_h
       cs = Chronic::parse(shifts['start']['start'])
@@ -86,8 +148,8 @@ module CPEE
       traces = [[]]
       laststate = :sequence
       events.each do |k,v|
-        bfound = false
-        branches.each do |b| # add branches to traces tree
+        # add branches to traces tree
+        branches.each do |b|
           b.each do |bid,bra|
             if bra.include? v.id
               traces.append(b.map{|tbid,tbra|tbra})
@@ -114,13 +176,40 @@ module CPEE
           traces.last.append v
         end
       end
+      Shifting::rec_clean(traces) # remove string
+      Shifting::init_time(traces[0],shifts['start'])
+      Shifting::rec_shift(traces,shifts,ChronicDuration::parse(shifts['start']['factor'],:keep_zero => true))
 
-      pp traces
+      # print out before flatten so see the fragments
+      traces.flatten!
 
-      # p events.first
-      # events.first.shift_start = cs + cf * csm
-      # events.first.shift_duration = events[0].duration * csm
-      # pp events
+      YAML::load_stream(File.read(xname)) do |e|
+        if e['log']
+          e.dig('log','extension')['shift'] = 'https://cpee.org/time-shifting/time-shifting.xesext'
+          File.open(nname,'w') do |f|
+            f << e.to_yaml
+          end
+        elsif e['event']
+          if e['event']['cpee:lifecycle:transition'] == 'activity/calling'
+            uuid = e['event']['cpee:activity_uuid']
+            e['event']['shift:timestamp'] = traces.find{|t| t.uuid == uuid}&.shift_start.xmlschema(2)
+            File.open(nname,'a') do |f|
+              f << e.to_yaml
+            end
+          elsif e['event']['cpee:lifecycle:transition'] == 'activity/done'
+            uuid = e['event']['cpee:activity_uuid']
+            e['event']['shift:timestamp'] = traces.find{|t| t.uuid == uuid}&.shift_end.xmlschema(2)
+            File.open(nname,'a') do |f|
+              f << e.to_yaml
+            end
+          else
+            File.open(nname,'a') do |f|
+              f << e.to_yaml
+            end
+          end
+        end
+      end
+      nname
     end
   end
 end
