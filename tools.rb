@@ -31,9 +31,9 @@ class TInfo #{{{
     @uuid = uuid
     @start = nil
     @end = nil
-    @duration = nil
+    @duration = 0
     @shift_start = nil
-    @shift_duration = nil
+    @shift_duration = 0
   end
 
   def finished?
@@ -54,7 +54,8 @@ class TInfo #{{{
   end
   def inspect
     tend = finished? ? (@shift_start + @shift_duration).xmlschema(2)[8..-7] : 0
-    '<%s: %s,%s,%s>' % [@id,@shift_start&.xmlschema(2)[8..-7],@shift_duration.to_s,tend]
+    ss =  @shift_start&.xmlschema(2)[8..-7] rescue nil
+    '<%s: %s,%s,%s>' % [@id,ss,@shift_duration.to_s,tend]
   end
 
   def shift_end
@@ -77,14 +78,23 @@ module CPEE
       end
     end #}}}
 
-    def self::init_time(fragment,start) #{{{
+    def self::init_time(fragment,start,shift) #{{{
       fragment.each do |f|
         if f.is_a? Array
-          Shifting::init_time(f,start)
+          Shifting::init_time(f,start,shift)
         else
           fact = ChronicDuration::parse(start['factor'],:keep_zero => true)
           f.shift_start = Chronic::parse(start['start']) + fact * start['modifier'].to_f
           f.shift_duration = f.duration * fact
+          if shift[f.id] && shift[f.id]['type'] == 'Ends'
+            # puts f.id + ': ' + shift[f.id]['expression']
+            duration = Chronic::parse(shift[f.id]['expression'], :now => f.shift_start) - f.shift_start
+            f.shift_duration = duration < 0 ? 0 : duration
+          end
+          if shift[f.id] && shift[f.id]['type'] == 'Duration'
+            # puts f.id + ': ' + shift[f.id]['expression']
+            f.shift_duration = ChronicDuration.parse(shift[f.id]['expression'], :keep_zero => true)
+          end
           return
         end
       end
@@ -124,7 +134,7 @@ module CPEE
 
     def self::generate_shifted_log(aname,bname,xname)
       shifts =  JSON::load(File.open(aname))
-      branches = JSON::load(File.open(bname))
+      branches = JSON::load(File.open(bname)) rescue []
       nname = xname.sub(/\.xes\./,'.xes.shift.')
 
       events = {}
@@ -145,7 +155,7 @@ module CPEE
       cf = ChronicDuration::parse(shifts['start']['factor'], :keep_zero => true)
       csm = shifts['start']['modifier'].to_f
 
-      traces = [[]]
+      traces = []
       laststate = :sequence
       events.each do |k,v|
         # add branches to traces tree
@@ -173,15 +183,20 @@ module CPEE
             traces.last.append v
           end
         else
+          traces << [] unless traces.last
           traces.last.append v
         end
       end
+
       Shifting::rec_clean(traces) # remove string
-      Shifting::init_time(traces[0],shifts['start'])
+
+      Shifting::init_time(traces[0],shifts['start'],shifts)
       Shifting::rec_shift(traces,shifts,ChronicDuration::parse(shifts['start']['factor'],:keep_zero => true))
 
       # print out before flatten so see the fragments
       traces.flatten!
+
+      pp traces
 
       YAML::load_stream(File.read(xname)) do |e|
         if e['log']

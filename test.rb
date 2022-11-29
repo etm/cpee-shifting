@@ -2,7 +2,7 @@
 require_relative 'tools'
 
 log_dir = 'logs'
-  instance = 'f9a22df6-7c78-4c44-b757-1de78c578757'
+  instance = 'b100ed6e-c783-4176-81ea-069c35b6d3ca'
 
 aname = File.join(__dir__,log_dir,instance + '.shift.json')
 bname = File.join(__dir__,log_dir,instance + '.branches.json')
