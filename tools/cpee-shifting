@@ -1,0 +1,70 @@
+#!/usr/bin/ruby
+#
+# This file is part of CPEE-SHIFTING.
+#
+# CPEE-SHIFTING is free software: you can redistribute it and/or modify it
+# under the terms of the GNU Lesser General Public License as published by the
+# Free Software Foundation, either version 3 of the License, or (at your
+# option) any later version.
+#
+# CPEE-SHIFTING is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with CPEE-SHIFTING (file COPYING in the main directory). If not, see
+# <http://www.gnu.org/licenses/>.
+
+curpath = __dir__
+require 'rubygems'
+require 'optparse'
+require 'fileutils'
+
+def wrap(s, width=78, indent=18)
+	lines = []
+	line, s = s[0..indent-2], s[indent..-1]
+  s.split(/\n/).each do |ss|
+    ss.split(/[ \t]+/).each do |word|
+      if line.size + word.size >= width
+        lines << line
+        line = (" " * (indent)) + word
+      else
+        line << " " << word
+      end
+    end
+    lines << line if line
+    line = (" " * (indent-1))
+  end
+	return lines.join "\n"
+end
+
+ARGV.options { |opt|
+  opt.summary_indent = ' ' * 2
+  opt.summary_width = 15
+  opt.banner = "Usage:\n#{opt.summary_indent}#{File.basename($0)} [options] new DIR\n"
+  opt.on("Options:")
+  opt.on("--help", "-h", "This text") { puts opt; exit }
+	opt.on("")
+  opt.on(wrap("[new DIR]         scaffolds a sample shifting server."))
+  opt.parse!
+}
+if (ARGV.length == 0) ||
+   (ARGV.length == 1) ||
+   (ARGV.length == 2  && !%w(new).include?(ARGV[0]))) ||
+   (ARGV.length >  2)
+  puts ARGV.options
+  exit
+end
+command = ARGV[0]
+p1      = ARGV[1]
+
+if command == 'new'
+  if !File.exists?(p1)
+    FileUtils.mkdir(File.join(p1)) rescue nil
+    FileUtils.cp_r("#{curpath}/../server/shifting",p1) unless File.exists?(File.join('p1','shifting'))
+    FileUtils.cp_r("#{curpath}/../server/shifting.conf",p1) unless File.exists?(File.join('p1','shifting.conf'))
+  else
+    puts 'Directory already exists.'
+  end
+end

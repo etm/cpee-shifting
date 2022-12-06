@@ -196,7 +196,7 @@ module CPEE
       # print out before flatten so see the fragments
       traces.flatten!
 
-      pp traces
+      //pp traces
 
       YAML::load_stream(File.read(xname)) do |e|
         if e['log']
