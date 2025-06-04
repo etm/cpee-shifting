@@ -17,7 +17,17 @@
 # <http://www.gnu.org/licenses/>.
 
 require 'rubygems'
-require 'cpee-shifting/implementation'
+if File.exist? File.join(__dir__,'cpee-shifting','implementation.rb')
+  require_relative 'cpee-shifting/implementation'
+else
+  require 'cpee-shifting/implementation'
+end
+
+options = {
+  :host => 'localhost',
+  :port => 9319,
+  :secure => false
+}
 
 Riddl::Server.new(CPEE::Shifting::SERVER, options) do
   accessible_description true

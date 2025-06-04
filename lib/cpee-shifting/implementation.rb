@@ -72,14 +72,14 @@ module CPEE
           ret = content['annotation'] ? CPEE::Shifting::extract_annotation(activity,content['annotation']) : {}
           if ret.any?
             dname = File.join(log_dir,instance + '.data.json')
-            shifting = if File.exists?(aname)
+            shifting = if File.exist?(aname)
               JSON::parse(File.read(aname))
             else
               {}
             end
             ['start','modifier','expression'].each do |e|
               if ret[activity][e] && ret[activity][e][0] == '!'
-                rs = WEEL::ReadStructure.new(File.exists?(dname) ? JSON::load(File::open(dname)) : {},{},{})
+                rs = WEEL::ReadStructure.new(File.exist?(dname) ? JSON::load(File::open(dname)) : {},{},{},{})
                 ret[activity][e] = rs.instance_eval(ret[activity][e][1..-1],'e',1)
               end
             end
@@ -88,7 +88,7 @@ module CPEE
           end
         end
         if topic == 'state' and event_name == 'change'
-          if content['state'] == 'finished' && File.exists?(aname)
+          if content['state'] == 'finished' && File.exist?(aname)
             EM.defer do
               Shifting::generate_shifted_log(aname,bname,xname)
             end
@@ -97,8 +97,8 @@ module CPEE
 
         if topic == 'gateway' and event_name == 'join'
           ret = content['branches']
-          if ret.any?
-            branches = if File.exists?(bname)
+          if ret && ret.any?
+            branches = if File.exist?(bname)
               JSON::parse(File.read(bname))
             else
               []

@@ -146,6 +146,7 @@ module CPEE
           elsif e['event']['cpee:lifecycle:transition'] == 'activity/done'
             events[e['event']['cpee:activity_uuid']] ||= TInfo.new(e['event']['id:id'],e['event']['cpee:activity_uuid'])
             events[e['event']['cpee:activity_uuid']].end = Time.parse(e['event']['time:timestamp'])
+            events[e['event']['cpee:activity_uuid']].start = events[e['event']['cpee:activity_uuid']].end if events[e['event']['cpee:activity_uuid']].start.nil?
           end
         end
       end #}}}
@@ -195,8 +196,6 @@ module CPEE
 
       # print out before flatten so see the fragments
       traces.flatten!
-
-      //pp traces
 
       YAML::load_stream(File.read(xname)) do |e|
         if e['log']
